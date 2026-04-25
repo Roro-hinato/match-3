@@ -86,6 +86,7 @@ The critical rule: `core/` never imports Pixi. You could run the entire game loo
 
 ## Levels
 
+Displayed on a **Mario-style world map** — nodes linked by a dashed path, color-coded by difficulty.
 
 | # | Name | Moves | Objective | Mechanics |
 | --- | --- | --- | --- | --- |
@@ -119,3 +120,7 @@ The critical rule: `core/` never imports Pixi. You could run the entire game loo
 - **GridGenerator** retries each cell until a legal color is found — guarantees no starting matches without using a math formula (which only works for simple cases).
 - **BoardView** reassigns tile references **before** tweening in `animateGravity`, so overlapping moves in the same column don't collide.
 - **`hasPlayableMove`** is O(rows·cols) with swap/revert — cheap enough to run after every cascade settles.
+
+## Notes
+
+"Match-3" is the genre. If you ever ship this publicly, pick an original name and visual identity — don't call it Candy Crush.
