@@ -49,9 +49,7 @@ export class BoardView extends Container {
       for (let col = 0; col < this.grid.cols; col++) {
         const t = this.grid.get(row, col);
         if (t === null) continue;
-        // Void tiles ARE rendered (so the grid shape is visible), but they
-        // don't accept clicks — pixelToCell returns null on void.
-        const tile = new TileView(t.color, t.kind, { row, col });
+        const tile = new TileView(t.color, t.kind, { row, col }, t.hits ?? 1);
         const p = this.cellToPixel({ row, col });
         tile.x = p.x;
         tile.y = p.y;
@@ -166,7 +164,7 @@ export class BoardView extends Container {
       const t = this.grid.get(pos.row, pos.col);
       if (t === null) continue;
       if (t.kind === 'void') continue;
-      const tile = new TileView(t.color, t.kind, pos);
+      const tile = new TileView(t.color, t.kind, pos, t.hits ?? 1);
       const target = this.cellToPixel(pos);
       tile.x = target.x;
       tile.y = -GAME_CONFIG.grid.tileSize;
@@ -338,6 +336,41 @@ export class BoardView extends Container {
         }),
       ),
     );
+  }
+
+  /** Decrements the displayed hit counter on a stone tile after it's struck. */
+  updateStoneHits(pos: Position, remaining: number): void {
+    const tile = this.tiles[pos.row]?.[pos.col];
+    if (!tile) return;
+    if (tile.kind !== 'stone') return;
+    tile.setHits(remaining);
+    gsap.fromTo(
+      tile.scale,
+      { x: 1.2, y: 1.2 },
+      { x: 1, y: 1, duration: 0.18, ease: 'back.out' },
+    );
+  }
+
+  /** Quick screen-shake of the entire board. Intensity scales with combo depth. */
+  shake(intensity: number): void {
+    // Cancel any in-flight shake so they don't compound and leave the board off-center.
+    gsap.killTweensOf(this);
+    const baseX = (this as Container & { _baseX?: number })._baseX ?? this.x;
+    const baseY = (this as Container & { _baseY?: number })._baseY ?? this.y;
+    (this as Container & { _baseX?: number })._baseX = baseX;
+    (this as Container & { _baseY?: number })._baseY = baseY;
+    const amplitude = Math.min(intensity, 14);
+    const tl = gsap.timeline();
+    for (let i = 0; i < 5; i++) {
+      const factor = 1 - i / 5;
+      tl.to(this, {
+        x: baseX + (Math.random() - 0.5) * 2 * amplitude * factor,
+        y: baseY + (Math.random() - 0.5) * 2 * amplitude * factor,
+        duration: 0.04,
+        ease: 'power1.inOut',
+      });
+    }
+    tl.to(this, { x: baseX, y: baseY, duration: 0.06, ease: 'power2.out' });
   }
 }
 

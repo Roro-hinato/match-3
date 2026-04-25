@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { GAME_CONFIG } from '@/config';
 import type { Position, TileColor, TileKind } from '@/core/types';
 import { tween } from '@/utils/tween';
@@ -7,13 +7,16 @@ export class TileView extends Container {
   public color: TileColor;
   public kind: TileKind;
   public gridPos: Position;
+  public hits: number = 1;
   private gfx: Graphics;
+  private hitsText: Text | null = null;
 
-  constructor(color: TileColor, kind: TileKind, pos: Position) {
+  constructor(color: TileColor, kind: TileKind, pos: Position, hits: number = 1) {
     super();
     this.color = color;
     this.kind = kind;
     this.gridPos = pos;
+    this.hits = hits;
     this.gfx = new Graphics();
     this.addChild(this.gfx);
     this.redraw();
@@ -21,6 +24,11 @@ export class TileView extends Container {
 
   setKind(kind: TileKind): void {
     this.kind = kind;
+    this.redraw();
+  }
+
+  setHits(hits: number): void {
+    this.hits = hits;
     this.redraw();
   }
 
@@ -32,10 +40,13 @@ export class TileView extends Container {
     const size = GAME_CONFIG.grid.tileSize;
     const fill = GAME_CONFIG.colors.tiles[this.color % GAME_CONFIG.colors.tiles.length];
     this.gfx.clear();
+    if (this.hitsText) {
+      this.removeChild(this.hitsText);
+      this.hitsText.destroy();
+      this.hitsText = null;
+    }
 
     if (this.kind === 'void') {
-      // Flat dark slab, no pattern — distinguishes void (off-grid area) from
-      // walls (in-grid obstacle). Pointer events ignore void via BoardView.pixelToCell.
       this.drawVoid(size);
       this.visible = true;
       return;
@@ -48,6 +59,20 @@ export class TileView extends Container {
     }
     if (this.kind === 'stone') {
       this.drawStone(size);
+      if (this.hits > 1) {
+        this.hitsText = new Text({
+          text: String(this.hits),
+          style: new TextStyle({
+            fontFamily: 'system-ui, Arial, sans-serif',
+            fontSize: 22,
+            fill: 0xf5f5fa,
+            fontWeight: 'bold',
+            stroke: { color: 0x1a1a25, width: 3 },
+          }),
+        });
+        this.hitsText.anchor.set(0.5);
+        this.addChild(this.hitsText);
+      }
       return;
     }
     if (this.kind === 'color-bomb') {
@@ -55,15 +80,20 @@ export class TileView extends Container {
       return;
     }
 
-    // Base rounded square, shared by normal + striped + wrapped
-    this.gfx.roundRect(-size / 2 + 4, -size / 2 + 4, size - 8, size - 8, 10).fill(fill);
+    // Tile body: a smooth rounded square with a subtle inner highlight + lower-half shadow.
+    // Aesthetic upgrade: more depth without abandoning the flat language.
+    this.gfx.roundRect(-size / 2 + 4, -size / 2 + 4, size - 8, size - 8, 12).fill(fill);
+    // Top highlight (~upper third)
+    this.gfx
+      .roundRect(-size / 2 + 8, -size / 2 + 8, size - 16, (size - 16) / 2.8, 8)
+      .fill({ color: 0xffffff, alpha: 0.2 });
+    // Bottom shadow (~lower fifth) for a hint of dimension
+    const bottomH = (size - 16) / 5;
+    this.gfx
+      .roundRect(-size / 2 + 8, size / 2 - 8 - bottomH, size - 16, bottomH, 6)
+      .fill({ color: 0x000000, alpha: 0.18 });
 
-    if (this.kind === 'normal') {
-      // Subtle highlight
-      this.gfx
-        .roundRect(-size / 2 + 8, -size / 2 + 8, size - 16, (size - 16) / 2.5, 6)
-        .fill({ color: 0xffffff, alpha: 0.18 });
-    } else if (this.kind === 'striped-h') {
+    if (this.kind === 'striped-h') {
       this.drawHorizontalStripes(size);
     } else if (this.kind === 'striped-v') {
       this.drawVerticalStripes(size);

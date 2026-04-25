@@ -15,9 +15,13 @@ export class LevelPanel extends Container {
   private topContainer: Container;
   private infoTitle: Text;
   private infoBody: Text;
+  private movesLabel: Text;
   private movesValue: Text;
   private objectiveLabel: Text;
   private objectiveProgress: Text;
+  /** Live coin counter shown only in infinite mode. */
+  private infiniteCoinsLabel: Text;
+  private infiniteCoinsValue: Text;
 
   constructor(width: number, height: number) {
     super();
@@ -44,16 +48,16 @@ export class LevelPanel extends Container {
     this.infoTitle.y = 14;
     this.topContainer.addChild(this.infoTitle);
 
-    // "Coups"
+    // "Coups" — kept hidden in infinite mode
     const movesLabelStyle = new TextStyle({
       fontFamily: 'system-ui, Arial, sans-serif',
       fontSize: 12,
       fill: 0x8a8a9e,
     });
-    const movesLabel = new Text({ text: 'COUPS', style: movesLabelStyle });
-    movesLabel.x = PADDING_X;
-    movesLabel.y = 38;
-    this.topContainer.addChild(movesLabel);
+    this.movesLabel = new Text({ text: 'COUPS', style: movesLabelStyle });
+    this.movesLabel.x = PADDING_X;
+    this.movesLabel.y = 38;
+    this.topContainer.addChild(this.movesLabel);
 
     const movesValueStyle = new TextStyle({
       fontFamily: 'system-ui, Arial, sans-serif',
@@ -90,7 +94,7 @@ export class LevelPanel extends Container {
     this.objectiveProgress.y = 122;
     this.topContainer.addChild(this.objectiveProgress);
 
-    // Infinite-mode body (shown instead of moves/objective text)
+    // Infinite-mode body (description) + live coin counter — shown only in infinite mode.
     const bodyStyle = new TextStyle({
       fontFamily: 'system-ui, Arial, sans-serif',
       fontSize: 13,
@@ -100,9 +104,37 @@ export class LevelPanel extends Container {
     });
     this.infoBody = new Text({ text: '', style: bodyStyle });
     this.infoBody.x = PADDING_X;
-    this.infoBody.y = 38;
+    this.infoBody.y = 42;
     this.infoBody.visible = false;
     this.topContainer.addChild(this.infoBody);
+
+    this.infiniteCoinsLabel = new Text({
+      text: 'PIÈCES GAGNÉES',
+      style: new TextStyle({
+        fontFamily: 'system-ui, Arial, sans-serif',
+        fontSize: 11,
+        fill: 0x8a8a9e,
+        letterSpacing: 1,
+      }),
+    });
+    this.infiniteCoinsLabel.x = PADDING_X;
+    this.infiniteCoinsLabel.y = 110;
+    this.infiniteCoinsLabel.visible = false;
+    this.topContainer.addChild(this.infiniteCoinsLabel);
+
+    this.infiniteCoinsValue = new Text({
+      text: '0 🪙',
+      style: new TextStyle({
+        fontFamily: 'system-ui, Arial, sans-serif',
+        fontSize: 24,
+        fill: 0xffd95e,
+        fontWeight: 'bold',
+      }),
+    });
+    this.infiniteCoinsValue.x = PADDING_X;
+    this.infiniteCoinsValue.y = 126;
+    this.infiniteCoinsValue.visible = false;
+    this.topContainer.addChild(this.infiniteCoinsValue);
 
     // --- Legend (bottom block) ---
     this.drawLegend();
@@ -110,25 +142,39 @@ export class LevelPanel extends Container {
 
   setLevelMode(def: LevelDef): void {
     this.infoTitle.text = `NIVEAU ${def.id} — ${def.name.toUpperCase()}`;
+    this.movesLabel.visible = true;
     this.movesValue.visible = true;
     this.objectiveLabel.visible = true;
     this.objectiveProgress.visible = true;
     this.infoBody.visible = false;
+    this.infiniteCoinsLabel.visible = false;
+    this.infiniteCoinsValue.visible = false;
     this.setMoves(def.moves);
     if (def.objective.type === 'score') {
       this.setObjectiveText(`Score : 0 / ${def.objective.target}`);
-    } else {
+    } else if (def.objective.type === 'destroy-stones') {
       this.setObjectiveText(`Pierres : 0 / ${def.objective.target}`);
+    } else {
+      this.setObjectiveText(`Tuiles : 0 / ${def.objective.target}`);
     }
   }
 
   setInfiniteMode(): void {
     this.infoTitle.text = 'MODE INFINI';
+    this.movesLabel.visible = false;
     this.movesValue.visible = false;
     this.objectiveLabel.visible = false;
     this.objectiveProgress.visible = false;
-    this.infoBody.text = 'Joue sans limite, fais\ntoujours plus de points.';
+    this.infoBody.text = 'Joue sans limite. Chaque combo rapporte des pièces.';
     this.infoBody.visible = true;
+    this.infiniteCoinsLabel.visible = true;
+    this.infiniteCoinsValue.visible = true;
+    this.setInfiniteCoinsEarned(0);
+  }
+
+  /** Updates the live coin counter shown in the infinite-mode panel. */
+  setInfiniteCoinsEarned(n: number): void {
+    this.infiniteCoinsValue.text = `${n} 🪙`;
   }
 
   setMoves(n: number): void {
@@ -148,7 +194,7 @@ export class LevelPanel extends Container {
       fontWeight: 'bold',
       letterSpacing: 1,
     });
-    const legendTitle = new Text({ text: 'BONBONS SPÉCIAUX', style: legendTitleStyle });
+    const legendTitle = new Text({ text: 'TUILES SPÉCIALES', style: legendTitleStyle });
     legendTitle.x = PADDING_X;
     legendTitle.y = legendTop;
     this.addChild(legendTitle);

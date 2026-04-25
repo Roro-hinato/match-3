@@ -132,24 +132,23 @@ export class Grid {
     return moves;
   }
 
-  /** True if the cell at (row, col) has a wall/stone/void somewhere directly above
-   *  in the same column — meaning a falling tile can't reach it from the top. */
+  /** True if the cell at (row, col) has a wall or stone somewhere directly above
+   *  in the same column. Void is NOT a blocker — it's the absence of grid, so
+   *  fresh tiles can spawn from the top and traverse void rows freely. */
   private isVerticallyBlocked(row: number, col: number): boolean {
     for (let r = row - 1; r >= 0; r--) {
       const t = this.data[r][col];
       if (!t) continue;
-      if (t.kind === 'wall' || t.kind === 'stone' || t.kind === 'void') return true;
+      if (t.kind === 'wall' || t.kind === 'stone') return true;
     }
     return false;
   }
 
   /**
-   * Fills null cells that have a clear vertical path to the top of the grid
-   * (those that *would* be reached by gravity from a fresh tile spawning above
-   * the column). Cells trapped under walls are left empty — the gravity
-   * routine's diagonal pass will pull tiles into them.
-   *
-   * Void cells are skipped (they're not part of the playfield).
+   * Fills null cells that have a clear path from the top of the grid (no
+   * wall/stone above in the same column). Void cells are *traversed* — they
+   * represent off-grid space, so a column whose top rows are void simply means
+   * tiles spawn lower down. This keeps shaped grids (T, U, cross) full.
    */
   fillEmpty(factory: () => Tile): Position[] {
     const filled: Position[] = [];
@@ -157,10 +156,12 @@ export class Grid {
       for (let row = 0; row < this.rows; row++) {
         const v = this.get(row, col);
         if (v !== null) {
-          if (v.kind === 'wall' || v.kind === 'stone' || v.kind === 'void') break;
+          // Real obstacle: stop refilling this column below it.
+          if (v.kind === 'wall' || v.kind === 'stone') break;
+          // Void: skip but keep walking — the next playable cell down might be empty.
+          if (v.kind === 'void') continue;
           continue;
         }
-        // Only fill if directly reachable from the top (no obstacle above).
         if (this.isVerticallyBlocked(row, col)) break;
         this.set(row, col, factory());
         filled.push({ row, col });

@@ -260,6 +260,41 @@ describe('Obstacles', () => {
     expect(MatchDetector.hasAnyMatch(g)).toBe(false);
   });
 
+  it('fillEmpty traverses void cells at the top of a column (shaped grid)', () => {
+    // Cross-shape situation: a column where rows 0-1 are void, rows 2-3 are
+    // playable but currently empty. New tiles must spawn in rows 2-3.
+    const g = new Grid(4, 1);
+    g.set(0, 0, { color: 0, kind: 'void' });
+    g.set(1, 0, { color: 0, kind: 'void' });
+    g.set(2, 0, null);
+    g.set(3, 0, null);
+    const filled = g.fillEmpty(() => tile(7));
+    expect(filled).toHaveLength(2);
+    expect(g.get(2, 0)?.color).toBe(7);
+    expect(g.get(3, 0)?.color).toBe(7);
+    // Voids stay voids
+    expect(g.get(0, 0)?.kind).toBe('void');
+    expect(g.get(1, 0)?.kind).toBe('void');
+  });
+
+  it('fillEmpty stops at a wall but traverses void above the wall', () => {
+    // Column with: void, void, empty, wall, empty, void.
+    // The empty at row 2 must fill (reachable through void from top).
+    // The empty at row 4 must NOT fill (under a wall).
+    const g = new Grid(6, 1);
+    g.set(0, 0, { color: 0, kind: 'void' });
+    g.set(1, 0, { color: 0, kind: 'void' });
+    g.set(2, 0, null);
+    g.set(3, 0, { color: 0, kind: 'wall' });
+    g.set(4, 0, null);
+    g.set(5, 0, { color: 0, kind: 'void' });
+    const filled = g.fillEmpty(() => tile(9));
+    expect(filled).toHaveLength(1);
+    expect(filled[0]).toEqual({ row: 2, col: 0 });
+    expect(g.get(2, 0)?.color).toBe(9);
+    expect(g.get(4, 0)).toBeNull();
+  });
+
   /**
    * Reconciliation: applyGravity emits a `moves` list. BoardView replays this
    * list to keep its sprite-position table in sync with the model. If the model

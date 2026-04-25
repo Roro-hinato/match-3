@@ -70,6 +70,7 @@ export class PlayScene extends Container {
       parent: this,
       onComplete: opts.onComplete,
       onHammerConsumed: () => this.shop.setHammerArmed(false),
+      onCoinsChange: () => this.shop.refresh(),
     });
     this.game.setScoreListener((s) => this.hud.setScore(s));
   }

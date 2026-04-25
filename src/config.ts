@@ -27,15 +27,15 @@ export const GAME_CONFIG = {
     perTile: 10,
   },
   colors: {
-    background: 0x1a1a2e,
-    boardBg: 0x242444,
+    background: 0x141422,
+    boardBg: 0x1f1f36,
     tiles: [
-      0xff4757, // red
-      0x2ed573, // green
-      0x1e90ff, // blue
-      0xffa502, // orange
-      0xa55eea, // purple
-      0xfeca57, // yellow
+      0xe85a71, // rose-red (warmer than before, less neon)
+      0x3aaf7a, // green (a touch more sage)
+      0x4a8df2, // soft blue
+      0xf5a142, // amber-orange
+      0xa977e6, // lavender-purple
+      0xf5d061, // mustard-yellow
     ],
   },
 } as const;

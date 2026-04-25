@@ -14,6 +14,8 @@ export type TileKind =
 export interface Tile {
   color: TileColor;
   kind: TileKind;
+  /** For multi-hit stones, how many hits remain. Undefined for everything else. */
+  hits?: number;
 }
 
 export function tile(color: TileColor, kind: TileKind = 'normal'): Tile {
@@ -24,8 +26,8 @@ export function wall(): Tile {
   return { color: 0, kind: 'wall' };
 }
 
-export function stone(): Tile {
-  return { color: 0, kind: 'stone' };
+export function stone(hits: number = 1): Tile {
+  return { color: 0, kind: 'stone', hits };
 }
 
 export function voidCell(): Tile {

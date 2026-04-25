@@ -23,6 +23,7 @@ import type { Hud } from '@/ui/Hud';
 import type { LevelPanel } from '@/ui/LevelPanel';
 import type { LevelDef, ObstacleLayout } from '@/levels/levels';
 import type { ShopItemKey } from '@/shop/items';
+import { SaveData } from '@/save/SaveData';
 import { AnimationQueue } from './AnimationQueue';
 import { BoardView } from './BoardView';
 import { InputController } from './InputController';
@@ -54,6 +55,8 @@ export interface GameOptions {
   onComplete?: (result: { won: boolean; score: number; stonesDestroyed: number }) => void;
   /** Called when the hammer mode is consumed (a tile got destroyed). */
   onHammerConsumed?: () => void;
+  /** Called when coins were earned (infinite mode farming). */
+  onCoinsChange?: () => void;
 }
 
 export class Game {
@@ -66,6 +69,7 @@ export class Game {
   private parent: Container;
   private onComplete?: GameOptions['onComplete'];
   private onHammerConsumed?: GameOptions['onHammerConsumed'];
+  private onCoinsChange?: GameOptions['onCoinsChange'];
 
   private grid!: Grid;
   private board!: BoardView;
@@ -73,6 +77,9 @@ export class Game {
   private score = 0;
   private movesLeft = Infinity;
   private stonesDestroyed = 0;
+  private colorCollected = 0;
+  /** Coins earned during the current infinite-mode session (resets on new game). */
+  private infiniteCoinsEarned = 0;
   private completed = false;
   private onScoreChange?: (s: number) => void;
   private hintTimer: number | null = null;
@@ -89,6 +96,7 @@ export class Game {
     this.parent = opts.parent ?? opts.app.stage;
     this.onComplete = opts.onComplete;
     this.onHammerConsumed = opts.onHammerConsumed;
+    this.onCoinsChange = opts.onCoinsChange;
   }
 
   async start(): Promise<void> {
@@ -298,7 +306,10 @@ export class Game {
       this.grid.set(r, c, wall());
     }
     for (const [r, c] of layout.stones ?? []) {
-      this.grid.set(r, c, stone());
+      this.grid.set(r, c, stone(1));
+    }
+    for (const [r, c, hits] of layout.toughStones ?? []) {
+      this.grid.set(r, c, stone(hits));
     }
   }
 
@@ -383,6 +394,7 @@ export class Game {
     const obj = this.mode.def.objective;
     if (obj.type === 'score') return this.score >= obj.target;
     if (obj.type === 'destroy-stones') return this.stonesDestroyed >= obj.target;
+    if (obj.type === 'collect-color') return this.colorCollected >= obj.target;
     return false;
   }
 
@@ -391,8 +403,12 @@ export class Game {
     const obj = this.mode.def.objective;
     if (obj.type === 'score') {
       this.panel.setObjectiveText(`Score : ${this.score} / ${obj.target}`);
-    } else {
+    } else if (obj.type === 'destroy-stones') {
       this.panel.setObjectiveText(`Pierres : ${this.stonesDestroyed} / ${obj.target}`);
+    } else if (obj.type === 'collect-color') {
+      this.panel.setObjectiveText(
+        `${colorLabel(obj.color)} : ${this.colorCollected} / ${obj.target}`,
+      );
     }
   }
 
@@ -468,7 +484,8 @@ export class Game {
       }
     }
 
-    // Stone adjacency: any stone bordering a cleared cell takes a hit and is removed.
+    // Stone adjacency: any stone bordering a cleared cell takes a hit.
+    // (Multi-hit stones are decremented; single-hit stones break.)
     const stoneHits = new Set<string>();
     for (const k of Array.from(seed)) {
       const pos = keyToPos(k);
@@ -490,26 +507,57 @@ export class Game {
 
     const positions = Array.from(seed).map(keyToPos);
 
-    // Snapshots for fly-to-score (exclude walls — they're not cleared anyway)
-    const snapshots: ClearedSnapshot[] = [];
+    // Walk every stone in the clear-set: if hits > 1, decrement and keep on
+    // grid (don't break). If hits <= 1, fully destroy + count toward objective.
+    // We track which stone keys actually broke so the cleared tile snapshot,
+    // scoring, and animations only operate on those.
+    const stonesThatBroke = new Set<string>();
     let destroyedStonesThisWave = 0;
     for (const p of positions) {
       const t = this.grid.get(p.row, p.col);
-      if (!t) continue;
-      if (t.kind === 'wall') continue;
-      if (t.kind === 'stone') {
+      if (!t || t.kind !== 'stone') continue;
+      const remaining = (t.hits ?? 1) - 1;
+      if (remaining <= 0) {
+        stonesThatBroke.add(posKey(p));
         destroyedStonesThisWave++;
-        continue; // stones don't have a color for the fly effect
+      } else {
+        // Decrement and re-render to show the hit.
+        this.grid.set(p.row, p.col, { color: 0, kind: 'stone', hits: remaining });
+        this.board.updateStoneHits(p, remaining);
       }
-      snapshots.push({ pos: p, color: t.color });
     }
     this.stonesDestroyed += destroyedStonesThisWave;
     if (destroyedStonesThisWave > 0) this.updateObjective();
 
-    // Filter out walls: walls never clear.
+    // Snapshots for fly-to-score (only the playable tiles, no obstacles)
+    const snapshots: ClearedSnapshot[] = [];
+    for (const p of positions) {
+      const t = this.grid.get(p.row, p.col);
+      if (!t) continue;
+      if (t.kind === 'wall' || t.kind === 'void') continue;
+      if (t.kind === 'stone') continue; // stones already handled above
+      snapshots.push({ pos: p, color: t.color });
+    }
+
+    // Track per-color clears for collect-color objectives.
+    if (this.mode.type === 'level' && this.mode.def.objective.type === 'collect-color') {
+      const targetColor = this.mode.def.objective.color;
+      for (const s of snapshots) {
+        if (s.color === targetColor) this.colorCollected++;
+      }
+      if (snapshots.some((s) => s.color === targetColor)) this.updateObjective();
+    }
+
+    // Filter the positions that should actually animate as cleared:
+    // - regular tiles always
+    // - stones only if they broke this wave
+    // - walls and voids never
     const clearablePositions = positions.filter((p) => {
       const t = this.grid.get(p.row, p.col);
-      return !t || t.kind !== 'wall';
+      if (!t) return true;
+      if (t.kind === 'wall' || t.kind === 'void') return false;
+      if (t.kind === 'stone') return stonesThatBroke.has(posKey(p));
+      return true;
     });
 
     // Score
@@ -517,6 +565,9 @@ export class Game {
     this.addScore(points);
     this.sound.playMatch(Math.min(Math.max(1, comboCount), 11));
     if (comboCount >= 2) this.sound.playCombo(comboCount);
+    // Screen shake on heavier combos (x3 → mild, x5+ → strong)
+    if (comboCount >= 3) this.board.shake(3 + (comboCount - 3) * 2);
+    this.maybeAwardComboBonus(comboCount);
 
     // Popups
     const centroid = this.centroidPixel(clearablePositions);
@@ -560,10 +611,15 @@ export class Game {
     const isBombB = tileB.kind === 'color-bomb';
 
     if (isBombA && isBombB) {
+      // Sweep the whole playfield, but skip walls AND voids (off-grid) AND
+      // stones (those are destroyed by adjacency, not by direct seeding).
+      // Stones still die from the adjacency pass in clearWithActivations.
       for (let r = 0; r < this.grid.rows; r++) {
         for (let c = 0; c < this.grid.cols; c++) {
           const t = this.grid.get(r, c);
-          if (t && t.kind !== 'wall') seed.add(posKey({ row: r, col: c }));
+          if (!t) continue;
+          if (t.kind === 'wall' || t.kind === 'void') continue;
+          seed.add(posKey({ row: r, col: c }));
         }
       }
     } else if (isBombA || isBombB) {
@@ -596,30 +652,33 @@ export class Game {
       const kinds = new Set<TileKind>([tileA.kind, tileB.kind]);
       const pivot = posB;
 
+      // Helper: adds (r, c) to the seed if the cell is on the playfield and
+      // not a wall. Stones are kept (they break via adjacency anyway).
+      const addCell = (r: number, c: number): void => {
+        if (!this.grid.inBounds(r, c)) return;
+        const t = this.grid.get(r, c);
+        if (!t) return;
+        if (t.kind === 'wall' || t.kind === 'void') return;
+        seed.add(posKey({ row: r, col: c }));
+      };
+
       if (kinds.has('wrapped') && !kinds.has('striped-h') && !kinds.has('striped-v')) {
+        // Wrapped + Wrapped → 5×5 area centered on the pivot
         for (let dr = -2; dr <= 2; dr++) {
-          for (let dc = -2; dc <= 2; dc++) {
-            const r = pivot.row + dr;
-            const c = pivot.col + dc;
-            if (this.grid.inBounds(r, c)) seed.add(posKey({ row: r, col: c }));
-          }
+          for (let dc = -2; dc <= 2; dc++) addCell(pivot.row + dr, pivot.col + dc);
         }
       } else if (kinds.has('wrapped')) {
+        // Striped + Wrapped → 3 rows + 3 columns
         for (let dr = -1; dr <= 1; dr++) {
-          const r = pivot.row + dr;
-          if (r >= 0 && r < this.grid.rows) {
-            for (let c = 0; c < this.grid.cols; c++) seed.add(posKey({ row: r, col: c }));
-          }
+          for (let c = 0; c < this.grid.cols; c++) addCell(pivot.row + dr, c);
         }
         for (let dc = -1; dc <= 1; dc++) {
-          const c = pivot.col + dc;
-          if (c >= 0 && c < this.grid.cols) {
-            for (let r = 0; r < this.grid.rows; r++) seed.add(posKey({ row: r, col: c }));
-          }
+          for (let r = 0; r < this.grid.rows; r++) addCell(r, pivot.col + dc);
         }
       } else {
-        for (let c = 0; c < this.grid.cols; c++) seed.add(posKey({ row: pivot.row, col: c }));
-        for (let r = 0; r < this.grid.rows; r++) seed.add(posKey({ row: r, col: pivot.col }));
+        // Striped + Striped → full row + full column
+        for (let c = 0; c < this.grid.cols; c++) addCell(pivot.row, c);
+        for (let r = 0; r < this.grid.rows; r++) addCell(r, pivot.col);
       }
     }
 
@@ -670,20 +729,27 @@ export class Game {
 
   private computeActivation(pos: Position, t: Tile): Position[] {
     const positions: Position[] = [];
+    // Helper: only push cells that exist on the playfield and aren't walls.
+    // Stones are kept (so striped/wrapped specials destroy them on activation).
+    const push = (r: number, c: number): void => {
+      if (!this.grid.inBounds(r, c)) return;
+      const cell = this.grid.get(r, c);
+      if (!cell) return;
+      if (cell.kind === 'wall' || cell.kind === 'void') return;
+      positions.push({ row: r, col: c });
+    };
     switch (t.kind) {
       case 'striped-h':
-        for (let c = 0; c < this.grid.cols; c++) if (c !== pos.col) positions.push({ row: pos.row, col: c });
+        for (let c = 0; c < this.grid.cols; c++) if (c !== pos.col) push(pos.row, c);
         break;
       case 'striped-v':
-        for (let r = 0; r < this.grid.rows; r++) if (r !== pos.row) positions.push({ row: r, col: pos.col });
+        for (let r = 0; r < this.grid.rows; r++) if (r !== pos.row) push(r, pos.col);
         break;
       case 'wrapped':
         for (let dr = -1; dr <= 1; dr++) {
           for (let dc = -1; dc <= 1; dc++) {
             if (dr === 0 && dc === 0) continue;
-            const r = pos.row + dr;
-            const c = pos.col + dc;
-            if (this.grid.inBounds(r, c)) positions.push({ row: r, col: c });
+            push(pos.row + dr, pos.col + dc);
           }
         }
         break;
@@ -692,7 +758,7 @@ export class Game {
           for (let c = 0; c < this.grid.cols; c++) {
             if (r === pos.row && c === pos.col) continue;
             const other = this.grid.get(r, c);
-            if (other && other.color === t.color && other.kind !== 'wall' && other.kind !== 'stone') {
+            if (other && other.color === t.color && other.kind !== 'wall' && other.kind !== 'stone' && other.kind !== 'void') {
               positions.push({ row: r, col: c });
             }
           }
@@ -774,9 +840,34 @@ export class Game {
   }
 
   private addScore(n: number): void {
+    const before = this.score;
     this.score += n;
     this.onScoreChange?.(this.score);
     this.updateObjective();
+    // Infinite-mode coin farming: 1 coin per 200 points threshold crossed
+    // (~2.5× more generous than the level-mode reward to reward time invested).
+    if (this.mode.type === 'infinite' && n > 0) {
+      const earned = Math.floor(this.score / 200) - Math.floor(before / 200);
+      if (earned > 0) {
+        SaveData.addCoins(earned);
+        this.infiniteCoinsEarned += earned;
+        this.panel.setInfiniteCoinsEarned(this.infiniteCoinsEarned);
+        this.onCoinsChange?.();
+      }
+    }
+  }
+
+  /** Awards a bonus coin payout for a high-multiplier combo wave (infinite mode only). */
+  private maybeAwardComboBonus(comboCount: number): void {
+    if (this.mode.type !== 'infinite') return;
+    let bonus = 0;
+    if (comboCount >= 5) bonus = 5;
+    else if (comboCount >= 4) bonus = 2;
+    else return;
+    SaveData.addCoins(bonus);
+    this.infiniteCoinsEarned += bonus;
+    this.panel.setInfiniteCoinsEarned(this.infiniteCoinsEarned);
+    this.onCoinsChange?.();
   }
 
   // -------------------------------------------------------------------------
@@ -831,4 +922,10 @@ function comboColorForMultiplier(multiplier: number): number {
   if (multiplier >= 3) return 0xffeb3b;
   if (multiplier >= 2) return 0x7bed9f;
   return 0xffffff;
+}
+
+const COLOR_LABELS = ['Rouges', 'Verts', 'Bleus', 'Oranges', 'Violets', 'Jaunes'];
+
+function colorLabel(color: number): string {
+  return COLOR_LABELS[color % COLOR_LABELS.length] ?? 'Tuiles';
 }
