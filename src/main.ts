@@ -141,6 +141,7 @@ async function bootstrap(): Promise<void> {
               coinsEarned: earned,
               totalCoins: SaveData.getCoins(),
               hasNext,
+              sound,
               onMenu: showMenu,
               onRetry: () => startPlay({ type: 'level', def }, def),
               onNext: hasNext

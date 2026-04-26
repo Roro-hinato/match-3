@@ -1,4 +1,5 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { gsap } from 'gsap';
 import { GAME_CONFIG } from '@/config';
 import type { Position, TileColor, TileKind } from '@/core/types';
 import { tween } from '@/utils/tween';
@@ -10,6 +11,7 @@ export class TileView extends Container {
   public hits: number = 1;
   private gfx: Graphics;
   private hitsText: Text | null = null;
+  private glow: Graphics | null = null;
 
   constructor(color: TileColor, kind: TileKind, pos: Position, hits: number = 1) {
     super();
@@ -45,6 +47,14 @@ export class TileView extends Container {
       this.hitsText.destroy();
       this.hitsText = null;
     }
+    // Clear the previous glow if any. We rebuild it for special kinds below.
+    if (this.glow) {
+      gsap.killTweensOf(this.glow);
+      gsap.killTweensOf(this.glow.scale);
+      this.removeChild(this.glow);
+      this.glow.destroy();
+      this.glow = null;
+    }
 
     if (this.kind === 'void') {
       this.drawVoid(size);
@@ -75,19 +85,54 @@ export class TileView extends Container {
       }
       return;
     }
+
+    // For special tiles (striped, wrapped, color-bomb), draw a soft glow halo
+    // behind the tile body. Three concentric translucent disks fake a radial
+    // blur cheaply — no shaders needed. The halo pulses gently to draw the eye.
+    const isSpecial =
+      this.kind === 'striped-h' ||
+      this.kind === 'striped-v' ||
+      this.kind === 'wrapped' ||
+      this.kind === 'color-bomb';
+    if (isSpecial) {
+      this.glow = new Graphics();
+      // Color-bombs use a multi-color shimmer; others use the tile's own color.
+      const glowColor = this.kind === 'color-bomb' ? 0xffffff : fill;
+      this.glow.circle(0, 0, size * 0.95).fill({ color: glowColor, alpha: 0.12 });
+      this.glow.circle(0, 0, size * 0.7).fill({ color: glowColor, alpha: 0.18 });
+      this.glow.circle(0, 0, size * 0.55).fill({ color: glowColor, alpha: 0.22 });
+      // Insert behind the body. The body is drawn into `this.gfx` which was
+      // the first child added; the glow is added last but moved to index 0
+      // so it renders below the body.
+      this.addChildAt(this.glow, 0);
+      // Pulse: slow scale wobble + alpha breathing
+      gsap.to(this.glow.scale, {
+        x: 1.15,
+        y: 1.15,
+        duration: 1.0,
+        ease: 'sine.inOut',
+        repeat: -1,
+        yoyo: true,
+      });
+      gsap.to(this.glow, {
+        alpha: 0.6,
+        duration: 1.0,
+        ease: 'sine.inOut',
+        repeat: -1,
+        yoyo: true,
+      });
+    }
+
     if (this.kind === 'color-bomb') {
       this.drawColorBomb(size);
       return;
     }
 
     // Tile body: a smooth rounded square with a subtle inner highlight + lower-half shadow.
-    // Aesthetic upgrade: more depth without abandoning the flat language.
     this.gfx.roundRect(-size / 2 + 4, -size / 2 + 4, size - 8, size - 8, 12).fill(fill);
-    // Top highlight (~upper third)
     this.gfx
       .roundRect(-size / 2 + 8, -size / 2 + 8, size - 16, (size - 16) / 2.8, 8)
       .fill({ color: 0xffffff, alpha: 0.2 });
-    // Bottom shadow (~lower fifth) for a hint of dimension
     const bottomH = (size - 16) / 5;
     this.gfx
       .roundRect(-size / 2 + 8, size / 2 - 8 - bottomH, size - 16, bottomH, 6)
@@ -221,5 +266,19 @@ export class TileView extends Container {
   async playUpgradeAnimation(): Promise<void> {
     await tween(this.scale, { x: 1.4, y: 1.4, duration: 0.14, ease: 'back.out' });
     await tween(this.scale, { x: 1, y: 1, duration: 0.14, ease: 'power2.out' });
+  }
+
+  /**
+   * Override Pixi's destroy so the infinite glow pulse tweens get killed
+   * before the target objects are gone. Without this, GSAP keeps ticking
+   * tweens against destroyed display objects until they hit their next loop
+   * iteration — harmless but wasteful, and noisy if anything ever logs.
+   */
+  destroy(options?: Parameters<Container['destroy']>[0]): void {
+    if (this.glow) {
+      gsap.killTweensOf(this.glow);
+      gsap.killTweensOf(this.glow.scale);
+    }
+    super.destroy(options);
   }
 }

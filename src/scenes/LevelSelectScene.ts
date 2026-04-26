@@ -80,14 +80,25 @@ export class LevelSelectScene extends Container {
     this.height0 = opts.height;
     this.onSelect = opts.onSelect;
 
-    // Background — a subtle vertical gradient (two stacked rects) instead of
-    // a starry sky. More mature, less arcade.
+    // Background — three distinct zones aligned with the layout:
+    //   1. Dark base (full screen)
+    //   2. Lighter map zone (between header and preview) — this is where the
+    //      scrollable nodes live, so the lighter shade frames them naturally
+    //   3. Header band (a touch darker than the base for separation)
+    //
+    // The map-zone rect is sized to `mapViewportTop` and `mapViewportHeight`,
+    // so it stays consistent with the mask geometry. If we ever change the
+    // header or preview heights, both the visuals and the clipping update
+    // together.
     const bg = new Graphics();
-    bg.rect(0, 0, opts.width, opts.height).fill(0x141422);
+    bg.rect(0, 0, opts.width, opts.height).fill(0x0e0e1a);
     this.addChild(bg);
-    const bgAccent = new Graphics();
-    bgAccent.rect(0, opts.height * 0.6, opts.width, opts.height * 0.4).fill(0x0e0e1a);
-    this.addChild(bgAccent);
+
+    const mapZoneTop = HEADER_H;
+    const mapZoneHeight = opts.height - HEADER_H - PREVIEW_H;
+    const mapZoneBg = new Graphics();
+    mapZoneBg.rect(0, mapZoneTop, opts.width, mapZoneHeight).fill(0x141422);
+    this.addChild(mapZoneBg);
 
     // Header
     const headerBg = new Graphics();
@@ -128,17 +139,29 @@ export class LevelSelectScene extends Container {
     const numRows = Math.ceil(LEVELS.length / COLS);
     this.mapContentHeight = GRID_TOP_PADDING + numRows * ROW_HEIGHT + 40;
 
+    // Architecture:
+    //   mapViewport (fixed position, holds the mask) →
+    //     mapContainer (scrolls vertically; clipped by mask)
+    //
+    // The mask MUST live in the same parent as the masked content but with a
+    // transform that does NOT scroll. If we put the mask directly on `this`
+    // and apply it to mapContainer, Pixi composes the transforms and the mask
+    // ends up scrolling along with mapContainer. The intermediate viewport
+    // container fixes that: its y is constant, the mask sits at y=0 in its
+    // local frame, and only mapContainer moves inside it.
+    const mapViewport = new Container();
+    mapViewport.x = 0;
+    mapViewport.y = this.mapViewportTop;
+    this.addChild(mapViewport);
+
     this.mapContainer = new Container();
     this.mapContainer.x = 0;
-    this.mapContainer.y = this.mapViewportTop;
-    this.addChild(this.mapContainer);
+    this.mapContainer.y = 0;
+    mapViewport.addChild(this.mapContainer);
 
-    // Mask: clip the scrolling content to the viewport rect.
     const maskGfx = new Graphics();
-    maskGfx
-      .rect(0, this.mapViewportTop, opts.width, this.mapViewportHeight)
-      .fill(0xffffff);
-    this.addChild(maskGfx);
+    maskGfx.rect(0, 0, opts.width, this.mapViewportHeight).fill(0xffffff);
+    mapViewport.addChild(maskGfx);
     this.mapContainer.mask = maskGfx;
 
     // Drag-catcher: an invisible rect behind the path/nodes that captures
@@ -268,7 +291,10 @@ export class LevelSelectScene extends Container {
     const max = Math.max(0, this.mapContentHeight - this.mapViewportHeight);
     const clamped = Math.max(0, Math.min(max, target));
     this.scrollY = clamped;
-    const targetY = this.mapViewportTop - clamped;
+    // mapContainer lives inside the fixed-position mapViewport, so y here is
+    // a local offset (negative = scrolled up). The mask is anchored to the
+    // viewport, not the content, so it doesn't move with this.
+    const targetY = -clamped;
     if (animated) {
       gsap.to(this.mapContainer, {
         y: targetY,
@@ -339,11 +365,15 @@ export class LevelSelectScene extends Container {
     wrap.addChild(circle);
 
     if (hidden) {
-      // Silhouette: a small lock icon, no number. Reduced alpha for "fog".
-      const lock = new Graphics();
-      lock.rect(-7, -3, 14, 12).fill(0xffa502);
-      lock.circle(0, -5, 5).stroke({ color: 0xffa502, width: 2 });
-      lock.alpha = 0.6;
+      // Silhouette: 🔒 emoji, no number. Reduced alpha for "fog".
+      const lock = new Text({
+        text: '🔒',
+        style: new TextStyle({
+          fontFamily: 'system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif',
+          fontSize: 30,
+        }),
+      });
+      lock.anchor.set(0.5);
       wrap.addChild(lock);
       wrap.alpha = 0.55;
     } else if (unlocked) {
@@ -384,10 +414,15 @@ export class LevelSelectScene extends Container {
         wrap.addChild(star);
       }
     } else {
-      // Locked-but-known levels (shouldn't happen with hidden logic, but kept defensively)
-      const lock = new Graphics();
-      lock.rect(-7, -3, 14, 12).fill(0xffa502);
-      lock.circle(0, -5, 5).stroke({ color: 0xffa502, width: 2 });
+      // Locked-but-known levels (defensive; the hidden branch above usually catches these)
+      const lock = new Text({
+        text: '🔒',
+        style: new TextStyle({
+          fontFamily: 'system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif',
+          fontSize: 30,
+        }),
+      });
+      lock.anchor.set(0.5);
       wrap.addChild(lock);
     }
 

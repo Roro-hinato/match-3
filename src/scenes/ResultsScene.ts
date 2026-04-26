@@ -1,6 +1,10 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { gsap } from 'gsap';
 import { Button } from '@/ui/Button';
 import type { LevelDef } from '@/levels/levels';
+import type { SoundManager } from '@/audio/SoundManager';
+import { GAME_CONFIG } from '@/config';
+import { ParticleSystem } from '@/game/ParticleSystem';
 
 interface ResultsOptions {
   width: number;
@@ -12,6 +16,7 @@ interface ResultsOptions {
   coinsEarned: number;
   totalCoins: number;
   hasNext: boolean;
+  sound?: SoundManager;
   onRetry: () => void;
   onNext?: () => void;
   onMenu: () => void;
@@ -27,8 +32,16 @@ export class ResultsScene extends Container {
     bg.rect(0, 0, width, height).fill({ color: 0x000000, alpha: 0.7 });
     this.addChild(bg);
 
-    // Panel
-    const panelW = 420;
+    // Panel — sized to comfortably hold the button row. With 3 buttons (won
+    // + has-next), we need ~474px of buttons + breathing room; with 2, ~312px
+    // plus room. We always pick a width that contains them with 30px padding.
+    const btnW = 140;
+    const btnGap = 12;
+    const willHaveThreeBtns = opts.won && opts.hasNext && !!opts.onNext;
+    const buttonRowW = willHaveThreeBtns
+      ? btnW * 3 + btnGap * 2
+      : btnW * 2 + btnGap;
+    const panelW = Math.max(420, buttonRowW + 60);
     const panelH = 380;
     const panelX = (width - panelW) / 2;
     const panelY = (height - panelH) / 2;
@@ -40,6 +53,40 @@ export class ResultsScene extends Container {
       .roundRect(panelX, panelY, panelW, panelH, 16)
       .stroke({ color: opts.won ? 0x2ed573 : 0xff4757, width: 3 });
     this.addChild(panel);
+
+    // ---- Win/loss-specific feedback -----------------------------------------
+    // Winning: confetti + ascending fanfare. The particle layer goes ABOVE the
+    // panel so the confetti falls in front of the result text — feels like a
+    // celebration burst rather than a passive backdrop.
+    // Losing: a gentle two-note descending sigh. No particles (it'd feel mocking).
+    if (opts.won) {
+      const particles = new ParticleSystem();
+      this.addChild(particles);
+      // Confetti rains across the full screen width, behind the panel border.
+      // Starts immediately so it's already raining as the user sees the panel.
+      particles.confetti(
+        { x: 0, y: 0, width, height: panelY + panelH },
+        50,
+        GAME_CONFIG.colors.tiles as unknown as number[],
+      );
+      opts.sound?.playVictory();
+    } else {
+      opts.sound?.playDefeat();
+    }
+
+    // Panel entrance bounce — feels alive whether you won or lost. The panel
+    // graphic is drawn at absolute coordinates (panelX, panelY), so we wrap
+    // the scaling around its visual center by setting pivot to that center
+    // AND offsetting position by the same amount, which is a no-op visually
+    // but lets `scale.set()` enlarge from the panel's middle.
+    const panelCenterX = panelX + panelW / 2;
+    const panelCenterY = panelY + panelH / 2;
+    panel.pivot.set(panelCenterX, panelCenterY);
+    panel.position.set(panelCenterX, panelCenterY);
+    panel.scale.set(0.7);
+    panel.alpha = 0;
+    gsap.to(panel.scale, { x: 1, y: 1, duration: 0.4, ease: 'back.out(1.6)' });
+    gsap.to(panel, { alpha: 1, duration: 0.25, ease: 'power2.out' });
 
     // Title
     const title = new Text({
@@ -115,10 +162,8 @@ export class ResultsScene extends Container {
     coinLine.y = panelY + 198;
     this.addChild(coinLine);
 
-    // Buttons
-    const btnW = 150;
+    // Buttons (btnW + btnGap declared above next to panel sizing logic)
     const btnH = 46;
-    const btnGap = 12;
     const menuBtn = new Button({
       label: 'MENU',
       width: btnW,

@@ -5,11 +5,14 @@ import type { Grid } from '@/core/Grid';
 import type { Position, TileKind } from '@/core/types';
 import { tween } from '@/utils/tween';
 import { TileView } from './TileView';
+import { ParticleSystem } from './ParticleSystem';
 
 export class BoardView extends Container {
   private tiles: (TileView | null)[][] = [];
   private bg: Graphics;
   public selectionMarker: Graphics;
+  /** Particle layer rendered above tiles for destruction bursts. */
+  public particles: ParticleSystem;
   private comboText: Text | null = null;
   private hintTiles: TileView[] = [];
 
@@ -37,6 +40,10 @@ export class BoardView extends Container {
       .stroke({ color: 0xffffff, width: 3 });
     this.selectionMarker.visible = false;
     this.addChild(this.selectionMarker);
+
+    // Particle layer sits above tiles so bursts visually overlap their cells.
+    this.particles = new ParticleSystem();
+    this.addChild(this.particles);
 
     this.buildFromGrid();
   }
@@ -117,6 +124,14 @@ export class BoardView extends Container {
     const tiles = positions
       .map((p) => this.tiles[p.row]?.[p.col])
       .filter((t): t is TileView => t != null);
+    // Emit a colored burst at each destroyed tile, BEFORE the tile graphics
+    // are torn down so we can sample its color. The burst extends past the
+    // tile's lifetime, fading out gracefully on its own.
+    for (const t of tiles) {
+      const fillColor =
+        GAME_CONFIG.colors.tiles[t.color % GAME_CONFIG.colors.tiles.length];
+      this.particles.burst(t.x, t.y, fillColor, 6);
+    }
     await Promise.all(tiles.map((t) => t.playExplodeAnimation()));
     for (const pos of positions) {
       const tile = this.tiles[pos.row]?.[pos.col];

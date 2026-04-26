@@ -366,14 +366,14 @@ export const LEVELS: LevelDef[] = [
   },
   {
     id: 20,
-    name: 'Triple jaune',
+    name: 'Triple rose',
     moves: 24,
     objective: { type: 'collect-color', color: 5, target: 50 },
     obstacles: {
       walls: [[2, 2], [2, 6], [6, 2], [6, 6]],
       toughStones: [[4, 4, 3]],
     },
-    description: '50 tuiles jaunes en 24 coups.',
+    description: '50 tuiles roses en 24 coups.',
     mapPos: { x: 0.42, y: 0.32 },
   },
   {

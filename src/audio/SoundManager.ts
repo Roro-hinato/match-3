@@ -78,6 +78,30 @@ export class SoundManager {
   }
 
   /**
+   * Victory fanfare: an ascending major triad (root → maj 3rd → 5th) with
+   * a final octave on top. Each note is a slow, sustained sine sweep so it
+   * has a warm "trumpet-y" feel without sounding too synthetic.
+   */
+  playVictory(): void {
+    if (!this._enabled || !this.ctx) return;
+    // C major triad: C5 (523), E5 (659), G5 (784), C6 (1046)
+    const notes = [523, 659, 784, 1046];
+    notes.forEach((f, i) => {
+      setTimeout(() => {
+        this.sweep(f, f, 0.35, 'sine', 0.32);
+        this.sweep(f * 2, f * 2, 0.35, 'triangle', 0.12); // gentle harmonic
+      }, i * 130);
+    });
+  }
+
+  /** Sad descending two-tone for level loss. */
+  playDefeat(): void {
+    if (!this._enabled || !this.ctx) return;
+    setTimeout(() => this.sweep(440, 392, 0.4, 'triangle', 0.28), 0);
+    setTimeout(() => this.sweep(330, 262, 0.6, 'triangle', 0.28), 250);
+  }
+
+  /**
    * Core primitive: frequency sweep with fast attack + exponential decay envelope.
    * Everything else in this class is a thin wrapper around this.
    */

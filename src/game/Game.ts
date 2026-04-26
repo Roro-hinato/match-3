@@ -924,7 +924,7 @@ function comboColorForMultiplier(multiplier: number): number {
   return 0xffffff;
 }
 
-const COLOR_LABELS = ['Rouges', 'Verts', 'Bleus', 'Oranges', 'Violets', 'Jaunes'];
+const COLOR_LABELS = ['Rouges', 'Verts', 'Bleus', 'Oranges', 'Violets', 'Roses'];
 
 function colorLabel(color: number): string {
   return COLOR_LABELS[color % COLOR_LABELS.length] ?? 'Tuiles';

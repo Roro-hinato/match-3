@@ -30,12 +30,12 @@ export const GAME_CONFIG = {
     background: 0x141422,
     boardBg: 0x1f1f36,
     tiles: [
-      0xe85a71, // rose-red (warmer than before, less neon)
-      0x3aaf7a, // green (a touch more sage)
+      0xe85a71, // rose-red (warm, dominant red)
+      0x3aaf7a, // green
       0x4a8df2, // soft blue
       0xf5a142, // amber-orange
       0xa977e6, // lavender-purple
-      0xf5d061, // mustard-yellow
+      0xec5db8, // vivid magenta/pink (clearly separated from red and purple)
     ],
   },
 } as const;
